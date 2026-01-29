@@ -1,0 +1,27 @@
+{
+  "name": "multizone-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "start": "turbo run start --parallel",
+    "db:generate": "cd packages/database && npm run db:generate",
+    "db:push": "cd packages/database && npm run db:push",
+    "db:studio": "cd packages/database && npm run db:studio",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "turbo": "^1.11.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.3.0"
+  }
+}
