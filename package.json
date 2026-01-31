@@ -1,5 +1,5 @@
 {
-  "name": "multizone-monorepo",
+  "name": "rely-saas",
   "version": "1.0.0",
   "private": true,
   "workspaces": [
@@ -9,19 +9,18 @@
   "scripts": {
     "dev": "turbo run dev --parallel",
     "build": "turbo run build",
-    "start": "turbo run start --parallel",
-    "db:generate": "cd packages/database && npm run db:generate",
-    "db:push": "cd packages/database && npm run db:push",
-    "db:studio": "cd packages/database && npm run db:studio",
+    "lint": "turbo run lint",
+    "db:generate": "cd packages/database && npx prisma generate",
+    "db:pull": "cd packages/database && npx prisma db pull",
+    "db:push": "cd packages/database && npx prisma db push",
+    "db:studio": "cd packages/database && npx prisma studio",
     "clean": "turbo run clean && rm -rf node_modules"
   },
   "devDependencies": {
-    "turbo": "^1.11.2"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "dependencies": {
-    "@prisma/client": "^7.3.0"
+    "@tailwindcss/postcss": "^4.1.18",
+    "autoprefixer": "^10.4.24",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
+    "turbo": "^1.10.16"
   }
 }

@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -12,61 +6,839 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
-model Account {
-  id                String  @id @default(cuid())
-  userId            String
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
-  expires_at        Int?
-  token_type        String?
+
+model accounts {
+  type              String  @db.VarChar(255)
+  provider          String  @db.VarChar(255)
+  providerAccountId String  @db.VarChar(255)
+  refresh_token     String?
+  access_token      String?
+  expires_at        BigInt?
+  id_token          String?
   scope             String?
-  id_token          String? @db.Text
   session_state     String?
+  token_type        String?
+  userId            String? @db.Uuid
+  id                String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  users             users?  @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([provider, providerAccountId])
-  @@map("accounts")
+  @@unique([provider, providerAccountId], map: "accounts_provider_provideraccountid_key")
+  @@index([id])
 }
 
-model Session {
-  id           String   @id @default(cuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("sessions")
+model asset {
+  id           String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String                @db.VarChar
+  code         String                @db.VarChar
+  saleable     Boolean               @default(true)
+  asset_type   String                @db.VarChar
+  coordinates  Unsupported("point")?
+  owner        String?               @db.Uuid
+  parent_asset String?               @db.Uuid
+  position     Int?                  @default(0)
+  party        party?                @relation(fields: [owner], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  asset        asset?                @relation("assetToasset", fields: [parent_asset], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  other_asset  asset[]               @relation("assetToasset")
+  consumption  consumption[]
+  menu_item    menu_item[]
 }
 
-model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String?   @unique
-  emailVerified DateTime?
-  image         String?
-  role          Role      @default(USER)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  accounts      Account[]
-  sessions      Session[]
-
-  @@map("users")
+model audit_log {
+  id         String   @id(map: "AuditLog_pkey")
+  tenantId   String   @db.Uuid
+  partyId    String?
+  userId     String
+  action     String
+  resource   String
+  resourceId String?
+  details    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  tenant     tenant   @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "AuditLog_tenantId_fkey")
 }
 
-model VerificationToken {
+model billing_plan {
+  id                                                             String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                                                           String                    @db.VarChar(255)
+  slug                                                           String                    @unique @db.VarChar(100)
+  description                                                    String?
+  tier                                                           String                    @default("starter") @db.VarChar(50)
+  status                                                         PlanStatus                @default(ACTIVE)
+  is_custom                                                      Boolean                   @default(false)
+  is_system_default                                              Boolean                   @default(false)
+  currency                                                       String                    @default("KES") @db.VarChar(3)
+  price_monthly                                                  Decimal?                  @db.Decimal(10, 2)
+  price_yearly                                                   Decimal?                  @db.Decimal(10, 2)
+  price_one_time                                                 Decimal?                  @db.Decimal(10, 2)
+  billing_interval                                               BillingInterval?          @default(MONTHLY)
+  trial_days                                                     Int                       @default(0)
+  setup_fee                                                      Decimal?                  @db.Decimal(10, 2)
+  metadata                                                       Json?                     @default("{}")
+  features                                                       Json?                     @default("{}")
+  quotas                                                         Json?                     @default("{}")
+  sort_order                                                     Int                       @default(0)
+  created_by                                                     String?                   @db.Uuid
+  updated_by                                                     String?                   @db.Uuid
+  created_at                                                     DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at                                                     DateTime                  @default(now()) @db.Timestamptz(6)
+  deleted_at                                                     DateTime?                 @db.Timestamptz(6)
+  users_billing_plan_created_byTousers                           users?                    @relation("billing_plan_created_byTousers", fields: [created_by], references: [id], onUpdate: NoAction)
+  users_billing_plan_updated_byTousers                           users?                    @relation("billing_plan_updated_byTousers", fields: [updated_by], references: [id], onUpdate: NoAction)
+  plan_feature_assignment                                        plan_feature_assignment[]
+  plan_upgrade_path_plan_upgrade_path_from_plan_idTobilling_plan plan_upgrade_path[]       @relation("plan_upgrade_path_from_plan_idTobilling_plan")
+  plan_upgrade_path_plan_upgrade_path_to_plan_idTobilling_plan   plan_upgrade_path[]       @relation("plan_upgrade_path_to_plan_idTobilling_plan")
+  tenant_subscription                                            tenant_subscription[]
+
+  @@index([created_at], map: "idx_billing_plan_created_at")
+  @@index([slug], map: "idx_billing_plan_slug")
+  @@index([sort_order], map: "idx_billing_plan_sort_order")
+  @@index([status], map: "idx_billing_plan_status")
+  @@index([tier], map: "idx_billing_plan_tier")
+}
+
+model consumption {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  contract_id       String    @db.Uuid
+  menu_item_id      String    @db.Uuid
+  asset_id          String    @db.Uuid
+  tariff_id         String    @db.Uuid
+  quantity          Float     @default(1) @db.Real
+  is_served         Boolean   @default(false)
+  is_deleted        Boolean   @default(false)
+  date_added        DateTime  @default(now()) @db.Timestamptz(6)
+  is_main_item      Boolean?  @default(false)
+  provider_id       String?   @db.Uuid
+  quantity_verified Float?    @default(0)
+  is_paid           Boolean?  @default(false)
+  is_active         Boolean?  @default(true)
+  user_id           String?   @db.Uuid
+  metadata          Json?
+  asset             asset     @relation(fields: [asset_id], references: [id], onUpdate: Restrict)
+  contract          contract  @relation(fields: [contract_id], references: [id], onUpdate: Restrict)
+  menu_item         menu_item @relation(fields: [menu_item_id], references: [id], onUpdate: Restrict)
+  party             party?    @relation(fields: [provider_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  tariff            tariff    @relation(fields: [tariff_id], references: [id], onUpdate: Restrict)
+  users             users?    @relation(fields: [user_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+}
+
+model contract {
+  id                              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                         String        @db.Uuid
+  serving_point_id                String        @db.Uuid
+  served_by                       String        @db.Uuid
+  is_paid                         Boolean       @default(false)
+  is_active                       Boolean       @default(true)
+  date_added                      DateTime      @default(now()) @db.Timestamp(6)
+  service_provider                String?       @db.Uuid
+  endorsement_type                String?       @default("NEW") @db.VarChar
+  self_service                    Boolean?      @default(false)
+  is_main_item                    Boolean?      @default(true)
+  consumption                     consumption[]
+  users_contract_served_byTousers users         @relation("contract_served_byTousers", fields: [served_by], references: [id], onUpdate: Restrict)
+  party                           party?        @relation(fields: [service_provider], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  serving_point                   serving_point @relation(fields: [serving_point_id], references: [id], onUpdate: Restrict)
+  users_contract_user_idTousers   users         @relation("contract_user_idTousers", fields: [user_id], references: [id], onUpdate: Restrict)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model conversations {
+  conversation_key          String                   @id @db.VarChar(64)
+  conversation_type         String                   @db.VarChar(20)
+  name                      String?                  @db.VarChar(255)
+  description               String?
+  avatar_url                String?
+  created_by                String                   @db.Uuid
+  external_group_id         String?                  @db.Uuid
+  external_system           String?                  @db.VarChar(50)
+  current_participants      Json
+  participant_count         Int?                     @default(dbgenerated("jsonb_array_length(current_participants)"))
+  is_archived               Boolean?                 @default(false)
+  is_locked                 Boolean?                 @default(false)
+  archived_at               DateTime?                @db.Timestamptz(6)
+  default_delivery_channels Json?                    @default("[\"in_app\"]")
+  message_count             Int?                     @default(0)
+  last_message_id           String?                  @db.Uuid
+  last_message_at           DateTime?                @db.Timestamptz(6)
+  last_message_preview      String?
+  first_message_at          DateTime?                @db.Timestamptz(6)
+  metadata                  Json?                    @default("{}")
+  version                   Int                      @default(1)
+  sys_period                Unsupported("tstzrange") @default(dbgenerated("tstzrange(CURRENT_TIMESTAMP, NULL::timestamp with time zone)"))
+  created_at                DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                 @default(now()) @db.Timestamptz(6)
+
+  @@index([created_by, created_at(sort: Desc)], map: "idx_conversations_creator")
+  @@index([current_participants(ops: JsonbPathOps)], map: "idx_conversations_participants", type: Gin)
+}
+
+model industry {
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String          @db.VarChar
+  slug          String?         @unique @db.VarChar
+  role_slugs    String[]        @db.VarChar
+  serving_point serving_point[]
+}
+
+model invoice {
+  id                  String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id           String               @db.Uuid
+  subscription_id     String?              @db.Uuid
+  invoice_number      String               @unique @db.VarChar(100)
+  amount              Decimal              @db.Decimal(10, 2)
+  currency            String               @default("KES") @db.VarChar(3)
+  tax_amount          Decimal?             @default(0) @db.Decimal(10, 2)
+  total_amount        Decimal              @db.Decimal(10, 2)
+  status              String               @default("draft") @db.VarChar(50)
+  due_date            DateTime?            @db.Timestamptz(6)
+  paid_at             DateTime?            @db.Timestamptz(6)
+  period_start        DateTime?            @db.Timestamptz(6)
+  period_end          DateTime?            @db.Timestamptz(6)
+  items               Json                 @default("[]")
+  notes               String?
+  pdf_url             String?              @db.VarChar(500)
+  metadata            Json?                @default("{}")
+  created_at          DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime             @default(now()) @db.Timestamptz(6)
+  tenant_subscription tenant_subscription? @relation(fields: [subscription_id], references: [id], onUpdate: NoAction)
+  tenant              tenant               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([due_date], map: "idx_invoice_due_date")
+  @@index([invoice_number], map: "idx_invoice_invoice_number")
+  @@index([status], map: "idx_invoice_status")
+  @@index([tenant_id], map: "idx_invoice_tenant")
+}
+
+model location {
+  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String          @db.VarChar
+  location_type  String          @db.VarChar
+  is_in          String?         @db.Uuid
+  location       location?       @relation("locationTolocation", fields: [is_in], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  other_location location[]      @relation("locationTolocation")
+  serving_point  serving_point[]
+}
+
+model menu {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String        @db.VarChar
+  description      String
+  serving_point_id String        @db.Uuid
+  is_deleted       Boolean?      @default(false)
+  position         Int?          @default(0)
+  cover_photo      String?
+  serving_point    serving_point @relation(fields: [serving_point_id], references: [id], onUpdate: Restrict)
+  menu_item        menu_item[]
+}
+
+model menu_item {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                 String                 @db.VarChar
+  description          String
+  is_stocked           Boolean                @default(false)
+  quantity             Float                  @default(0)
+  menu_id              String                 @db.Uuid
+  tariff_id            String?                @db.Uuid
+  asset_id             String?                @db.Uuid
+  is_deleted           Boolean?               @default(false)
+  is_available         Boolean?               @default(true)
+  parent_menu_item_id  String?                @db.Uuid
+  position             Int?                   @default(0)
+  barcode              String?                @db.VarChar
+  consumption          consumption[]
+  asset                asset?                 @relation(fields: [asset_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  menu                 menu                   @relation(fields: [menu_id], references: [id], onUpdate: Restrict)
+  menu_item            menu_item?             @relation("menu_itemTomenu_item", fields: [parent_menu_item_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  other_menu_item      menu_item[]            @relation("menu_itemTomenu_item")
+  tariff               tariff?                @relation(fields: [tariff_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  stock_adjustment_log stock_adjustment_log[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model message_deliveries {
+  id                 String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  message_id         String                   @db.Uuid
+  user_id            String                   @db.Uuid
+  channel            String                   @db.VarChar(30)
+  recipient_address  String?
+  priority           String?                  @db.VarChar(20)
+  status             String                   @default("pending") @db.VarChar(20)
+  attempts           Int                      @default(0)
+  max_attempts       Int                      @default(3)
+  next_retry_at      DateTime?                @db.Timestamptz(6)
+  last_attempt_at    DateTime?                @db.Timestamptz(6)
+  retry_strategy     String?                  @default("exponential") @db.VarChar(20)
+  backoff_seconds    Int?                     @default(60)
+  queued_at          DateTime?                @db.Timestamptz(6)
+  sent_at            DateTime?                @db.Timestamptz(6)
+  delivered_at       DateTime?                @db.Timestamptz(6)
+  read_at            DateTime?                @db.Timestamptz(6)
+  failed_at          DateTime?                @db.Timestamptz(6)
+  expired_at         DateTime?                @db.Timestamptz(6)
+  error_code         String?                  @db.VarChar(50)
+  error_message      String?
+  error_details      Json?
+  action_taken       String?                  @db.VarChar(50)
+  action_taken_at    DateTime?                @db.Timestamptz(6)
+  action_metadata    Json?
+  action_result      String?                  @db.VarChar(20)
+  external_provider  String?                  @db.VarChar(50)
+  external_id        String?                  @db.VarChar(255)
+  external_status    String?                  @db.VarChar(50)
+  provider_response  Json?
+  provider_cost      Decimal?                 @db.Decimal(10, 4)
+  delivery_proof     Json?
+  is_suppressed      Boolean?                 @default(false)
+  suppression_reason String?                  @db.VarChar(100)
+  version            Int                      @default(1)
+  metadata           Json?                    @default("{}")
+  created_at         DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime                 @default(now()) @db.Timestamptz(6)
+  sys_period         Unsupported("tstzrange") @default(dbgenerated("tstzrange(CURRENT_TIMESTAMP, NULL::timestamp with time zone)"))
+  messages           messages                 @relation(fields: [message_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([message_id, user_id, channel])
+  @@index([channel, status, created_at(sort: Desc)], map: "idx_deliveries_channel_status")
+  @@index([message_id, channel], map: "idx_deliveries_message")
+  @@index([user_id, status, created_at(sort: Desc)], map: "idx_deliveries_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model messages {
+  id                   String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversation_key     String                   @db.VarChar(64)
+  conversation_type    String                   @db.VarChar(20)
+  sender_id            String                   @db.Uuid
+  sender_type          String?                  @default("user") @db.VarChar(20)
+  message_type         String                   @db.VarChar(50)
+  priority             String?                  @default("normal") @db.VarChar(20)
+  title                String?                  @db.VarChar(500)
+  body                 String
+  attachments          Json?                    @default("[]")
+  actions              Json?                    @default("[]")
+  participants         Json
+  delivery_channels    Json                     @default("[\"in_app\"]")
+  delivery_strategy    String?                  @default("parallel") @db.VarChar(20)
+  scheduled_at         DateTime?                @db.Timestamptz(6)
+  expires_at           DateTime?                @db.Timestamptz(6)
+  send_after           DateTime?                @db.Timestamptz(6)
+  status               String?                  @default("pending") @db.VarChar(20)
+  version              Int                      @default(1)
+  is_deleted           Boolean?                 @default(false)
+  idempotency_key      String?                  @unique @db.VarChar(255)
+  metadata             Json?                    @default("{}")
+  created_at           DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime                 @default(now()) @db.Timestamptz(6)
+  deleted_at           DateTime?                @db.Timestamptz(6)
+  sys_period           Unsupported("tstzrange") @default(dbgenerated("tstzrange(CURRENT_TIMESTAMP, NULL::timestamp with time zone)"))
+  search_vector        Unsupported("tsvector")?
+  tenant_id            String?                  @db.Uuid
+  delivery_priority    String?                  @default("normal") @db.VarChar(20)
+  delivery_mode        String?                  @default("async") @db.VarChar(20)
+  temporal_workflow_id String?                  @db.VarChar(255)
+  temporal_run_id      String?                  @db.VarChar(255)
+  reply_to_message_id  String?                  @db.Uuid
+  thread_root_id       String?                  @db.Uuid
+  message_deliveries   message_deliveries[]
+  tenant               tenant?                  @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "fk_messages_tenant")
+
+  @@index([actions(ops: JsonbPathOps)], map: "idx_messages_actions", type: Gin)
+  @@index([metadata(ops: JsonbPathOps)], map: "idx_messages_metadata", type: Gin)
+  @@index([participants(ops: JsonbPathOps)], map: "idx_messages_participants", type: Gin)
+  @@index([search_vector], map: "idx_messages_search", type: Gin)
+}
+
+model party {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name              String              @db.VarChar
+  is_person         Boolean?            @default(false)
+  slug              String?             @unique @db.VarChar(255)
+  tenant_id         String?
+  type              String?
+  config            Json?
+  enabled_features  String[]            @default([])
+  metadata          Json?
+  created_at        DateTime?           @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime?           @default(now()) @db.Timestamptz(6)
+  asset             asset[]
+  consumption       consumption[]
+  contract          contract[]
+  role_permissions  role_permissions[]
+  roles             roles[]
+  serving_point     serving_point[]
+  tenant_roles      tenant_roles[]
+  user_invitations  user_invitations[]
+  user_tenant_roles user_tenant_roles[]
+
+  @@unique([tenant_id, slug], map: "party_tenant_slug_unique")
+}
+
+model payment {
+  id                     String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  subscription_id        String?              @db.Uuid
+  tenant_id              String               @db.Uuid
+  amount                 Decimal              @db.Decimal(10, 2)
+  currency               String               @default("KES") @db.VarChar(3)
+  status                 String               @default("pending") @db.VarChar(50)
+  payment_method         String?              @db.VarChar(50)
+  gateway_transaction_id String?              @db.VarChar(255)
+  gateway_response       Json?
+  description            String?
+  invoice_url            String?              @db.VarChar(500)
+  paid_at                DateTime?            @db.Timestamptz(6)
+  due_date               DateTime?            @db.Timestamptz(6)
+  period_start           DateTime?            @db.Timestamptz(6)
+  period_end             DateTime?            @db.Timestamptz(6)
+  metadata               Json?                @default("{}")
+  created_at             DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime             @default(now()) @db.Timestamptz(6)
+  tenant_subscription    tenant_subscription? @relation(fields: [subscription_id], references: [id], onUpdate: NoAction)
+  tenant                 tenant               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([created_at], map: "idx_payment_created_at")
+  @@index([status], map: "idx_payment_status")
+  @@index([subscription_id], map: "idx_payment_subscription")
+  @@index([tenant_id], map: "idx_payment_tenant")
+}
+
+model plan_feature {
+  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key                     String                    @unique @db.VarChar(100)
+  name                    String                    @db.VarChar(255)
+  description             String?
+  feature_type            String                    @default("boolean") @db.VarChar(50)
+  default_value           String?                   @db.VarChar(255)
+  validation_rules        Json?                     @default("{}")
+  is_system               Boolean                   @default(false)
+  category                String?                   @db.VarChar(100)
+  sort_order              Int                       @default(0)
+  metadata                Json?                     @default("{}")
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  deleted_at              DateTime?                 @db.Timestamptz(6)
+  plan_feature_assignment plan_feature_assignment[]
+
+  @@index([category], map: "idx_plan_feature_category")
+  @@index([key], map: "idx_plan_feature_key")
+}
+
+model plan_feature_assignment {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  plan_id      String       @db.Uuid
+  feature_id   String       @db.Uuid
+  value        String       @db.VarChar(255)
+  is_limited   Boolean      @default(false)
+  limit_value  String?      @db.VarChar(255)
+  is_enabled   Boolean      @default(true)
+  created_at   DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime     @default(now()) @db.Timestamptz(6)
+  plan_feature plan_feature @relation(fields: [feature_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  billing_plan billing_plan @relation(fields: [plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([plan_id, feature_id])
+  @@index([feature_id], map: "idx_plan_feature_assignment_feature")
+  @@index([plan_id], map: "idx_plan_feature_assignment_plan")
+}
+
+model plan_upgrade_path {
+  id                                                        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  from_plan_id                                              String       @db.Uuid
+  to_plan_id                                                String       @db.Uuid
+  is_allowed                                                Boolean      @default(true)
+  proration_type                                            String       @default("time_based") @db.VarChar(50)
+  requires_approval                                         Boolean      @default(false)
+  conditions                                                Json?        @default("{}")
+  created_at                                                DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at                                                DateTime     @default(now()) @db.Timestamptz(6)
+  billing_plan_plan_upgrade_path_from_plan_idTobilling_plan billing_plan @relation("plan_upgrade_path_from_plan_idTobilling_plan", fields: [from_plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  billing_plan_plan_upgrade_path_to_plan_idTobilling_plan   billing_plan @relation("plan_upgrade_path_to_plan_idTobilling_plan", fields: [to_plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([from_plan_id, to_plan_id])
+  @@index([from_plan_id], map: "idx_plan_upgrade_path_from")
+  @@index([to_plan_id], map: "idx_plan_upgrade_path_to")
+}
+
+model resources {
+  id                 Int                @id @default(autoincrement())
+  path               String             @unique
+  name               String
+  display_name       String
+  is_wildcard        Boolean            @default(false)
+  description        String?
+  slug               String?            @unique @db.VarChar(255)
+  parent_resource_id Int?
+  resources          resources?         @relation("resourcesToresources", fields: [parent_resource_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  other_resources    resources[]        @relation("resourcesToresources")
+  role_permissions   role_permissions[]
+
+  @@index([path], map: "idx_resources_path")
+  @@index([path], map: "idx_resources_path_prefix")
+}
+
+model role_permissions {
+  role_name        String
+  resource_path    String
+  party_id         String        @db.Uuid
+  tenant_role_id   String?       @db.Uuid
+  serving_point_id String        @db.Uuid
+  party            party         @relation(fields: [party_id], references: [id], onUpdate: Restrict)
+  resources        resources     @relation(fields: [resource_path], references: [path], onDelete: Cascade, onUpdate: NoAction)
+  serving_point    serving_point @relation(fields: [serving_point_id], references: [id], onUpdate: Restrict)
+  tenant_roles     tenant_roles? @relation(fields: [tenant_role_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([resource_path, role_name, serving_point_id])
+  @@unique([resource_path, role_name, serving_point_id])
+  @@index([resource_path], map: "idx_role_permissions_path")
+}
+
+model roles {
+  id                          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                     String         @db.Uuid
+  party_id                    String?        @db.Uuid
+  serving_point_id            String?        @db.Uuid
+  role                        String?        @db.VarChar
+  date_added                  DateTime?      @default(now()) @db.Timestamp(6)
+  added_by                    String?        @db.Uuid
+  role_slug                   String?        @db.VarChar
+  users_roles_added_byTousers users?         @relation("roles_added_byTousers", fields: [added_by], references: [id], onUpdate: NoAction, map: "fk_roles_added_by")
+  party                       party?         @relation(fields: [party_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  serving_point               serving_point? @relation(fields: [serving_point_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  users_roles_user_idTousers  users          @relation("roles_user_idTousers", fields: [user_id], references: [id], onUpdate: Restrict)
+}
+
+model serving_point {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                 String                 @db.VarChar
+  owner                String                 @db.Uuid
+  is_published         Boolean                @default(false)
+  location_id          String?                @db.Uuid
+  settings             Json?
+  mpesa_till           String?                @db.VarChar
+  recommended          Boolean?               @default(false)
+  industry_id          String?                @db.Uuid
+  slug                 String?                @db.VarChar
+  contract             contract[]
+  menu                 menu[]
+  role_permissions     role_permissions[]
+  roles                roles[]
+  industry             industry?              @relation(fields: [industry_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  location             location?              @relation(fields: [location_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  party                party                  @relation(fields: [owner], references: [id], onUpdate: Restrict)
+  stock_adjustment_log stock_adjustment_log[]
+  user_invitations     user_invitations[]
+}
+
+model sessions {
+  id           Int      @id @default(autoincrement())
+  expires      DateTime @db.Timestamptz(6)
+  sessionToken String   @unique(map: "sessions_sessiontoken_key") @db.VarChar(255)
+  userId       String?  @db.Uuid
+  users        users?   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+}
+
+model stock_adjustment_log {
+  id                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  menu_item_id      String         @db.Uuid
+  previous_quantity Float          @default(0)
+  current_quantity  Float?         @default(0)
+  user_id           String         @db.Uuid
+  reason            String?
+  serving_point_id  String?        @db.Uuid
+  menu_item         menu_item      @relation(fields: [menu_item_id], references: [id], onUpdate: Restrict)
+  serving_point     serving_point? @relation(fields: [serving_point_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  users             users          @relation(fields: [user_id], references: [id], onUpdate: Restrict)
+}
+
+model tariff {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String        @db.VarChar
+  amount      Float
+  currency    String        @default("KES") @db.VarChar
+  tax         Float         @default(0)
+  consumption consumption[]
+  menu_item   menu_item[]
+}
+
+model tenant {
+  id                      String               @id(map: "tenant_merged_pkey") @db.Uuid
+  name                    String               @db.VarChar(255)
+  slug                    String               @unique(map: "tenant_merged_slug_key") @db.VarChar(255)
+  customDomain            String?              @unique(map: "tenant_merged_customDomain_key") @db.VarChar(255)
+  logo                    String?              @db.VarChar(255)
+  theme                   Json?
+  plan                    String?              @default("free") @db.VarChar(50)
+  billingEmail            String?              @db.VarChar(255)
+  settings                Json?
+  createdAt               DateTime?            @default(now()) @db.Timestamptz(6)
+  updatedAt               DateTime?            @default(now()) @db.Timestamptz(6)
+  description             String?
+  status                  String?              @default("active") @db.VarChar(20)
+  tier                    String?              @default("starter") @db.VarChar(50)
+  billing_status          String?              @default("current") @db.VarChar(20)
+  billing_customer_id     String?              @db.VarChar(255)
+  billing_subscription_id String?              @db.VarChar(255)
+  billing_plan_id         String?              @db.VarChar(255)
+  contact_email           String?              @db.VarChar(255)
+  contact_phone           String?              @db.VarChar(50)
+  contact_name            String?              @db.VarChar(255)
+  quotas                  Json?                @default("{\"max_users\": 100, \"retention_days\": 30, \"allowed_channels\": [\"in_app\", \"email\", \"sms\", \"push\", \"webhook\"], \"max_storage_bytes\": 1073741824, \"max_messages_per_month\": 10000, \"max_concurrent_workflows\": 10, \"max_api_requests_per_hour\": 1000}")
+  metadata                Json?                @default("{}")
+  custom_domain           String?              @db.VarChar(255)
+  website_url             String?              @db.VarChar(500)
+  logo_url                String?              @db.VarChar(500)
+  trial_started_at        DateTime?            @db.Timestamptz(6)
+  trial_ends_at           DateTime?            @db.Timestamptz(6)
+  created_at              DateTime?            @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime?            @default(now()) @db.Timestamptz(6)
+  deleted_at              DateTime?            @db.Timestamptz(6)
+  is_system_tenant        Boolean?             @default(false)
+  audit_log               audit_log[]
+  invoice                 invoice[]
+  messages                messages[]
+  payment                 payment[]
+  tenant_subscription     tenant_subscription?
+  usage                   usage[]
+  user_invitations        user_invitations[]
+  user_tenant             user_tenant[]
+
+  @@index([metadata], map: "idx_tenant_metadata", type: Gin)
+  @@index([quotas], map: "idx_tenant_quotas", type: Gin)
+  @@index([settings], map: "idx_tenant_settings", type: Gin)
+  @@index([slug], map: "idx_tenant_slug")
+  @@index([status], map: "idx_tenant_status")
+  @@index([tier], map: "idx_tenant_tier")
+}
+
+model tenant_roles {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id         String?             @db.Uuid
+  name              String              @db.VarChar(50)
+  slug              String              @db.VarChar(100)
+  description       String?
+  is_default        Boolean?            @default(false)
+  created_at        DateTime?           @default(now()) @db.Timestamp(6)
+  role_permissions  role_permissions[]
+  party             party?              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_tenant_roles user_tenant_roles[]
+
+  @@unique([tenant_id, slug])
+}
+
+model tenant_subscription {
+  id                                          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                   String          @unique @db.Uuid
+  plan_id                                     String          @db.Uuid
+  status                                      String          @default("active") @db.VarChar(50)
+  current_period_start                        DateTime        @db.Timestamptz(6)
+  current_period_end                          DateTime        @db.Timestamptz(6)
+  cancel_at_period_end                        Boolean         @default(false)
+  canceled_at                                 DateTime?       @db.Timestamptz(6)
+  trial_start                                 DateTime?       @db.Timestamptz(6)
+  trial_end                                   DateTime?       @db.Timestamptz(6)
+  billing_interval                            BillingInterval @default(MONTHLY)
+  amount                                      Decimal         @db.Decimal(10, 2)
+  currency                                    String          @default("KES") @db.VarChar(3)
+  setup_fee_paid                              Boolean         @default(false)
+  payment_gateway                             String?         @db.VarChar(50)
+  gateway_customer_id                         String?         @db.VarChar(255)
+  gateway_subscription_id                     String?         @db.VarChar(255)
+  next_payment_date                           DateTime?       @db.Timestamptz(6)
+  last_payment_date                           DateTime?       @db.Timestamptz(6)
+  last_payment_amount                         Decimal?        @db.Decimal(10, 2)
+  metadata                                    Json?           @default("{}")
+  features_used                               Json?           @default("{}")
+  created_by                                  String?         @db.Uuid
+  updated_by                                  String?         @db.Uuid
+  created_at                                  DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at                                  DateTime        @default(now()) @db.Timestamptz(6)
+  deleted_at                                  DateTime?       @db.Timestamptz(6)
+  invoice                                     invoice[]
+  payment                                     payment[]
+  users_tenant_subscription_created_byTousers users?          @relation("tenant_subscription_created_byTousers", fields: [created_by], references: [id], onUpdate: NoAction)
+  billing_plan                                billing_plan    @relation(fields: [plan_id], references: [id], onUpdate: NoAction)
+  tenant                                      tenant          @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_tenant_subscription_updated_byTousers users?          @relation("tenant_subscription_updated_byTousers", fields: [updated_by], references: [id], onUpdate: NoAction)
+
+  @@index([current_period_end], map: "idx_tenant_subscription_current_period_end")
+  @@index([plan_id], map: "idx_tenant_subscription_plan")
+  @@index([status], map: "idx_tenant_subscription_status")
+  @@index([tenant_id], map: "idx_tenant_subscription_tenant")
+}
+
+model usage {
+  id        String   @id(map: "Usage_pkey")
+  tenantId  String   @db.Uuid
+  partyId   String?
+  metric    String
+  value     Int
+  period    String
+  createdAt DateTime @default(now())
+  tenant    tenant   @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Usage_tenantId_fkey")
+
+  @@unique([tenantId, partyId, metric, period], map: "Usage_tenantId_partyId_metric_period_key")
+}
+
+model user_invitations {
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String            @db.VarChar(255)
+  tenant_id        String?           @db.Uuid
+  party_id         String?           @db.Uuid
+  serving_point_id String?           @db.Uuid
+  invited_by       String            @db.Uuid
+  role             String            @db.VarChar(50)
+  permissions      Json?             @default("{}")
+  token            String            @unique @db.VarChar(255)
+  status           InvitationStatus? @default(PENDING)
+  expires_at       DateTime          @db.Timestamptz(6)
+  accepted_at      DateTime?         @db.Timestamptz(6)
+  created_at       DateTime?         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime?         @default(now()) @db.Timestamptz(6)
+  users            users             @relation(fields: [invited_by], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  party            party?            @relation(fields: [party_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  serving_point    serving_point?    @relation(fields: [serving_point_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenant           tenant?           @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([email, status])
+  @@index([expires_at])
+  @@index([token])
+}
+
+model user_log {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String    @db.Uuid
+  action      String    @db.VarChar(100)
+  resource    String?   @db.VarChar(100)
+  resource_id String?   @db.VarChar(100)
+  details     Json?
+  ip_address  String?   @db.VarChar(45)
+  user_agent  String?
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  users       users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([action, created_at(sort: Desc)])
+  @@index([user_id, created_at(sort: Desc)])
+}
+
+model user_party {
+  id           String      @id(map: "UserParty_pkey")
+  userTenantId String
+  partyId      String      @db.Uuid
+  role         String      @default("staff")
+  permissions  Json?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime
+  user_tenant  user_tenant @relation(fields: [userTenantId], references: [id], onDelete: Cascade, map: "UserParty_userTenantId_fkey")
+
+  @@unique([userTenantId, partyId], map: "UserParty_userTenantId_partyId_key")
+}
+
+model user_tenant {
+  id         String       @id(map: "UserTenant_pkey")
+  userId     String       @db.Uuid
+  tenantId   String       @db.Uuid
+  role       String       @default("staff")
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime
+  user_party user_party[]
+  tenant     tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "UserTenant_tenantId_fkey")
+
+  @@unique([userId, tenantId], map: "UserTenant_userId_tenantId_key")
+}
+
+model user_tenant_roles {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id        String?       @db.Uuid
+  tenant_id      String?       @db.Uuid
+  tenant_role_id String?       @db.Uuid
+  created_at     DateTime?     @default(now()) @db.Timestamp(6)
+  party          party?        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenant_roles   tenant_roles? @relation(fields: [tenant_role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users          users?        @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, tenant_id])
+}
+
+model users {
+  id                                                        String                 @id @db.Uuid
+  name                                                      String                 @db.VarChar
+  email                                                     String                 @unique @db.VarChar
+  is_anonymous                                              Boolean                @default(false)
+  created_at                                                DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at                                                DateTime               @default(now()) @db.Timestamptz(6)
+  image                                                     String?
+  msisdn                                                    BigInt?
+  emailVerified                                             DateTime?              @db.Timestamp(6)
+  status                                                    UserStatus?            @default(ACTIVE)
+  last_login_at                                             DateTime?              @db.Timestamptz(6)
+  timezone                                                  String?                @default("Africa/Nairobi") @db.VarChar(50)
+  locale                                                    String?                @default("en") @db.VarChar(10)
+  phone_verified                                            Boolean?               @default(false)
+  two_factor_enabled                                        Boolean?               @default(false)
+  last_password_change                                      DateTime?              @db.Timestamptz(6)
+  failed_login_attempts                                     Int?                   @default(0)
+  account_locked_until                                      DateTime?              @db.Timestamptz(6)
+  marketing_consent                                         Boolean?               @default(false)
+  terms_accepted_at                                         DateTime?              @db.Timestamptz(6)
+  created_by                                                String?                @db.Uuid
+  updated_by                                                String?                @db.Uuid
+  deleted_by                                                String?                @db.Uuid
+  deleted_at                                                DateTime?              @db.Timestamptz(6)
+  role                                                      user_role              @default(user)
+  accounts                                                  accounts[]
+  billing_plan_billing_plan_created_byTousers               billing_plan[]         @relation("billing_plan_created_byTousers")
+  billing_plan_billing_plan_updated_byTousers               billing_plan[]         @relation("billing_plan_updated_byTousers")
+  consumption                                               consumption[]
+  contract_contract_served_byTousers                        contract[]             @relation("contract_served_byTousers")
+  contract_contract_user_idTousers                          contract[]             @relation("contract_user_idTousers")
+  roles_roles_added_byTousers                               roles[]                @relation("roles_added_byTousers")
+  roles_roles_user_idTousers                                roles[]                @relation("roles_user_idTousers")
+  sessions                                                  sessions[]
+  stock_adjustment_log                                      stock_adjustment_log[]
+  tenant_subscription_tenant_subscription_created_byTousers tenant_subscription[]  @relation("tenant_subscription_created_byTousers")
+  tenant_subscription_tenant_subscription_updated_byTousers tenant_subscription[]  @relation("tenant_subscription_updated_byTousers")
+  user_invitations                                          user_invitations[]
+  user_log                                                  user_log[]
+  user_tenant_roles                                         user_tenant_roles[]
+
+  @@index([email], map: "idx_users_email")
+}
+
+model verification_token {
   identifier String
-  token      String   @unique
-  expires    DateTime
+  expires    DateTime @db.Timestamp(6)
+  token      String
 
-  @@unique([identifier, token])
-  @@map("verification_tokens")
+  @@id([identifier, token])
 }
 
-enum Role {
-  USER
-  ADMIN
+enum BillingInterval {
+  MONTHLY
+  YEARLY
+  ONE_TIME
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+enum PlanStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING
+}
+
+enum user_role {
+  user
+  admin
+  super_admin
 }
